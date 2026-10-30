@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#070d0c">
+<title>Compass</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@1&display=swap">
+<style>
+:root{
+  --night:#070d0c; --glow:#3a2a10; --text:#e3cf9c;
+  --body:"IM Fell English",Georgia,serif;
+}
+*{box-sizing:border-box}
+html{background:var(--night)}
+body{
+  margin:0; min-height:100dvh; overflow:hidden;
+  background:
+    radial-gradient(60% 45% at 50% 46%, var(--glow), transparent 70%),
+    radial-gradient(120% 90% at 50% 40%, #10201b, var(--night));
+  color:var(--text); font-family:var(--body); font-style:italic; text-align:center;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:22px;
+  padding-block:max(16px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-bottom,0px));
+  padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px));
+  -webkit-tap-highlight-color:transparent;
+}
+body::after{content:""; position:fixed; inset:0; pointer-events:none;
+  background:radial-gradient(90% 70% at 50% 45%, transparent 55%, rgba(0,0,0,.65));}
+#compass{width:min(92vw,66dvh,460px); height:auto; filter:drop-shadow(0 20px 30px rgba(0,0,0,.7))}
+#status{margin:0; min-height:1.4em; font-size:1.15rem; letter-spacing:.06em; opacity:.75; transition:opacity 1.6s ease}
+#status.gone{opacity:0}
+</style>
+</head>
+<body>
+  <svg id="compass" viewBox="0 -30 400 430" role="img" aria-label="A compass needle searching for what you desire most">
+    <defs>
+      <radialGradient id="brass" cx="35%" cy="30%" r="90%">
+        <stop offset="0" stop-color="#e4c377"/><stop offset=".45" stop-color="#a97a32"/><stop offset="1" stop-color="#4a3413"/>
+      </radialGradient>
+      <radialGradient id="parch" cx="50%" cy="50%" r="55%">
+        <stop offset="0" stop-color="#efdfb1"/><stop offset=".7" stop-color="#e0c98f"/><stop offset="1" stop-color="#a98a48"/>
+      </radialGradient>
+      <radialGradient id="stain">
+        <stop offset="0" stop-color="#6b4a1c" stop-opacity=".28"/><stop offset="1" stop-color="#6b4a1c" stop-opacity="0"/>
+      </radialGradient>
+      <filter id="grain" x="0" y="0" width="100%" height="100%">
+        <feTurbulence type="fractalNoise" baseFrequency=".8" numOctaves="2" seed="4"/>
+        <feColorMatrix values="0 0 0 0 .23  0 0 0 0 .16  0 0 0 0 .08  0 0 0 .6 0"/>
+      </filter>
+      <clipPath id="face"><circle cx="200" cy="200" r="174"/></clipPath>
+      <g id="blade">
+        <path d="M200 40 L209 200 L191 200 Z" fill="#8c2a1c" stroke="#2f0d07" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M191 200 L209 200 L200 238 Z" fill="#5c4217" stroke="#2a1d08" stroke-width="2" stroke-linejoin="round"/>
+        <circle cx="200" cy="248" r="9" fill="none" stroke="#5c4217" stroke-width="4"/>
+      </g>
+    </defs>
+
+    <!-- hinge ring and collar -->
+    <circle cx="200" cy="-8" r="17" fill="none" stroke="url(#brass)" stroke-width="8"/>
+    <rect x="186" y="6" width="28" height="22" rx="4" fill="url(#brass)" stroke="#4a3413" stroke-width="2"/>
+
+    <!-- case -->
+    <circle cx="200" cy="200" r="196" fill="url(#brass)" stroke="#2f2008" stroke-width="2"/>
+    <circle cx="200" cy="200" r="189" fill="none" stroke="#2f2008" stroke-width="2.5" stroke-dasharray="2 7" opacity=".55"/>
+    <circle cx="200" cy="200" r="181" fill="none" stroke="#4a3413" stroke-width="3"/>
+
+    <!-- face -->
+    <circle cx="200" cy="200" r="174" fill="url(#parch)" stroke="#4a3413" stroke-width="4"/>
+    <g clip-path="url(#face)">
+      <rect x="26" y="26" width="348" height="348" filter="url(#grain)" opacity=".5"/>
+      <circle cx="130" cy="285" r="85" fill="url(#stain)"/>
+      <circle cx="285" cy="120" r="60" fill="url(#stain)"/>
+    </g>
+    <g id="ticks" stroke="#3a2a14" stroke-linecap="round" opacity=".8"></g>
+    <g id="rose" fill="#3a2a14" opacity=".3"></g>
+    <circle cx="200" cy="200" r="118" fill="none" stroke="#3a2a14" stroke-width="1" opacity=".3"/>
+
+    <!-- needle -->
+    <g id="needle">
+      <use href="#blade" transform="translate(4 7)" opacity=".28" style="filter:brightness(0)"/>
+      <use href="#blade"/>
+      <circle cx="200" cy="200" r="10" fill="#e4c377" stroke="#4a3413" stroke-width="3"/>
+      <circle cx="200" cy="200" r="3" fill="#4a3413"/>
+    </g>
+
+    <!-- glass -->
+    <ellipse cx="148" cy="100" rx="96" ry="46" fill="#fff" opacity=".09" transform="rotate(-28 148 100)"/>
+    <circle cx="200" cy="200" r="174" fill="none" stroke="#fff" stroke-opacity=".18" stroke-width="2"/>
+  </svg>
+
+  <p id="status" aria-live="polite">Seeking...</p>
+
+<script>
+// Target: Kaʻaʻawa, Oʻahu, Hawaiʻi. Swap in real coordinates later.
+const TARGET = { lat: 21.5560, lon: -157.8510 };
+const MIN_HUNT_MS = 3600;      // the needle always searches at least this long
+const NO_SENSOR_MS = 2500;     // extra wait for a heading before assuming no compass sensor
+const AMP = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0.35 : 1;
+
+const rad = d => d * Math.PI / 180, deg = r => r * 180 / Math.PI;
+const wrap = a => ((a + 540) % 360) - 180;
+function bearingTo(a, b) {
+  const p1 = rad(a.lat), p2 = rad(b.lat), dl = rad(b.lon - a.lon);
+  const y = Math.sin(dl) * Math.cos(p2);
+  const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
+  return (deg(Math.atan2(y, x)) + 360) % 360;
+}
+
+// Static dial: ticks and eight point rose.
+const NS = "http://www.w3.org/2000/svg";
+function add(parent, tag, attrs) {
+  const el = document.createElementNS(NS, tag);
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  parent.appendChild(el);
+}
+const ticks = document.getElementById("ticks");
+for (let i = 0; i < 72; i++) {
+  const major = i % 9 === 0, a = rad(i * 5), r1 = major ? 142 : 155, r2 = 166;
+  add(ticks, "line", {
+    x1: 200 + r1 * Math.sin(a), y1: 200 - r1 * Math.cos(a),
+    x2: 200 + r2 * Math.sin(a), y2: 200 - r2 * Math.cos(a),
+    "stroke-width": major ? 3 : 1.2
+  });
+}
+const rose = document.getElementById("rose");
+for (let k = 0; k < 8; k++) {
+  const len = k % 2 === 0 ? 132 : 88, w = k % 2 === 0 ? 11 : 7;
+  add(rose, "path", { d: `M200 ${200 - len} L${200 + w} 200 L${200 - w} 200 Z`, transform: `rotate(${k * 45} 200 200)` });
+}
+
+// Sensors
+const needle = document.getElementById("needle"), statusEl = document.getElementById("status");
+let pos = null, rawHeading = null, heading = null;
+let needsTap = false;        // iOS: motion access must be granted by a tap
+let noSensorNote = false;    // set when we fall back to a north-up needle
+function say(t) { statusEl.textContent = t; statusEl.classList.remove("gone"); }
+
+function onOrient(e) {
+  if (typeof e.webkitCompassHeading === "number") rawHeading = e.webkitCompassHeading;
+  else if (e.alpha !== null && (e.absolute || e.type === "deviceorientationabsolute")) rawHeading = (360 - e.alpha) % 360;
+}
+let orientationStarted = false;
+function startOrientation() {
+  if (orientationStarted) return;
+  orientationStarted = true;
+  window.addEventListener("deviceorientationabsolute", onOrient, true);
+  window.addEventListener("deviceorientation", onOrient, true);
+}
+
+if (!window.isSecureContext) {
+  say("Sensors need an https address.");
+} else {
+  if (navigator.geolocation) {
+    navigator.geolocation.watchPosition(
+      p => { pos = { lat: p.coords.latitude, lon: p.coords.longitude }; },
+      e => say(e.code === 1 ? "Allow location to find your way." : "No position fix yet."),
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
+    );
+  } else say("No location support here.");
+
+  if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+    // iOS 13+: Safari only accepts this from a click or touchend, so use click and allow retries.
+    needsTap = true;
+    say("Touch the compass");
+    document.addEventListener("click", async () => {
+      if (orientationStarted) return;
+      try {
+        const r = await DeviceOrientationEvent.requestPermission();
+        if (r === "granted") { startOrientation(); say("Seeking..."); }
+        else say("Motion denied. Close Safari, reopen, and tap again.");
+      } catch (err) {
+        say("Motion failed: " + (err && err.name ? err.name : "unknown") + ". Tap to retry.");
+      }
+    });
+  } else {
+    startOrientation();
+  }
+}
+
+// Needle: wild search, then a springy settle on the target.
+const K = 30, C = 5.5;      // spring stiffness and damping (underdamped, so it overshoots)
+let angle = 0, vel = 0, spinGoal = 0, nextKick = 0, startT = null, last = null, settled = false;
+
+function frame(t) {
+  if (startT === null) { startT = t; last = t; }
+  const dt = Math.min((t - last) / 1000, 0.05); last = t;
+
+  if (rawHeading !== null) {
+    heading = heading === null ? rawHeading : heading + wrap(rawHeading - heading) * Math.min(1, dt * 8);
+  } else if (heading === null && !needsTap && t - startT > MIN_HUNT_MS + NO_SENSOR_MS) {
+    // No compass sensor (most desktops). Treat the top of the screen as north.
+    heading = 0;
+    noSensorNote = true;
+  }
+  const ready = pos && heading !== null && t - startT > MIN_HUNT_MS;
+
+  if (!ready) {
+    if (t > nextKick) {
+      spinGoal = (Math.random() * 2 - 1) * 1100 * AMP;
+      nextKick = t + 220 + Math.random() * 480;
+    }
+    vel += (spinGoal - vel) * Math.min(1, dt * 6);
+  } else {
+    if (!settled) {
+      settled = true;
+      vel = Math.max(-420, Math.min(420, vel));
+      if (noSensorNote) say("No compass sensor. Pointing from north.");
+      else statusEl.classList.add("gone");
+    }
+    const d = wrap(bearingTo(pos, TARGET) - heading - angle);
+    vel += (K * d - C * vel) * dt;
+  }
+  angle += vel * dt;
+  needle.setAttribute("transform", `rotate(${angle} 200 200)`);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
