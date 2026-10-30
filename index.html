@@ -146,7 +146,9 @@ let pos = null, rawHeading = null, heading = null;
 let rawBeta = 0, rawGamma = 0;   // phone tilt: beta = front/back, gamma = left/right
 let needsTap = false;        // iOS: motion access must be granted by a tap
 let noSensorNote = false;    // set when we fall back to a north-up dial
-function say(t) { statusEl.textContent = t; statusEl.classList.remove("gone"); }
+const QUOTE = "Not all treasure is silver and gold, mate.";
+let quoteShown = false;      // once the compass is working, the quote is the last word
+function say(t) { if (quoteShown && t !== QUOTE) return; statusEl.textContent = t; statusEl.classList.remove("gone"); }
 
 function onOrient(e) {
   if (typeof e.beta === "number" && typeof e.gamma === "number") { rawBeta = e.beta; rawGamma = e.gamma; }
@@ -226,8 +228,9 @@ function frame(t) {
     if (!settled) {
       settled = true;
       vel = Math.max(-420, Math.min(420, vel));
-      if (noSensorNote) say("No compass sensor. Pointing from north.");
-      else statusEl.classList.add("gone");
+      quoteShown = true;
+      statusEl.classList.add("gone");                       // fade the old line out
+      setTimeout(() => { say(QUOTE); }, 1700);              // then fade the quote in
     }
     const d = wrap(bearingTo(pos, TARGET) - heading - angle);
     vel += (K * d - C * vel) * dt;
