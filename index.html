@@ -89,6 +89,8 @@ body::after{content:""; position:fixed; inset:0; pointer-events:none;
     </g>
     <circle cx="200" cy="200" r="147" fill="none" stroke="#000" stroke-opacity=".4" stroke-width="3"/>
 
+    <!-- lens flare: on the glass, above the dial but under the sundial -->
+    <g clip-path="url(#glass)"><g id="gleam"><circle r="15" fill="url(#flare)"/><ellipse rx="24" ry="1.1" fill="url(#streakH)"/><ellipse rx="1.1" ry="16" fill="url(#streakV)"/></g><circle id="ghost" r="7" fill="url(#flare)" opacity=".2"/></g>
     <!-- FIXED sundial. Light comes from the top-left, so every fixed shadow falls bottom-right. -->
     <!-- 1. star shadow (low, short) -->
     <g id="sh-star" filter="url(#blur2)" opacity=".42" fill="#000" transform="translate(3.3 2.7)">
@@ -120,7 +122,7 @@ body::after{content:""; position:fixed; inset:0; pointer-events:none;
     <circle cx="200" cy="200" r="1.6" fill="#2a1d08"/>
 
     <!-- glass -->
-    <g clip-path="url(#glass)"><g id="glare"><ellipse cx="148" cy="100" rx="96" ry="46" fill="#fff" opacity=".09" transform="rotate(-28 148 100)"/></g><g id="gleam"><circle r="15" fill="url(#flare)"/><ellipse rx="24" ry="1.1" fill="url(#streakH)"/><ellipse rx="1.1" ry="16" fill="url(#streakV)"/></g><circle id="ghost" r="7" fill="url(#flare)" opacity=".2"/></g>
+    <g clip-path="url(#glass)"><g id="glare"><ellipse cx="148" cy="100" rx="96" ry="46" fill="#fff" opacity=".09" transform="rotate(-28 148 100)"/></g></g>
     <circle cx="200" cy="200" r="149" fill="none" stroke="#fff" stroke-opacity=".18" stroke-width="2"/>
   </svg>
 
@@ -150,7 +152,14 @@ let needsTap = false;        // iOS: motion access must be granted by a tap
 let noSensorNote = false;    // set when we fall back to a north-up dial
 // Once the compass is working, this line has the last word.
 const QUOTE = "Not all treasure is silver and gold, mate.";
-let quoteShown = false;
+const HEADING = "We have our heading...";
+let quoteShown = false, quoteLive = false, aligned = false, swapTimer = 0;
+function swapLine(text) {                       // quick cross-fade between the two closing lines
+  clearTimeout(swapTimer);
+  statusEl.style.transitionDuration = ".45s";
+  statusEl.classList.add("gone");
+  swapTimer = setTimeout(() => { say(text, true); }, 480);
+}
 function say(t, final) {
   if (quoteShown && !final) return;
   statusEl.textContent = "";
@@ -295,12 +304,17 @@ function frame(t) {
       vel = Math.max(-420, Math.min(420, vel));
       quoteShown = true;
       statusEl.classList.add("gone");                       // fade the old line out
-      setTimeout(() => { say(QUOTE, true); }, 1700);              // then fade the quote in
+      setTimeout(() => { say(QUOTE, true); quoteLive = true; }, 1700);              // then fade the quote in
     }
     const d = wrap(bearingTo(pos, TARGET) - heading - angle);
     vel += (K * d - C * vel) * dt;
   }
   angle += vel * dt;
+  if (quoteLive) {                              // fleur-de-lis under the sundial's top ray (5 degrees in, 9 out)
+    const dev = Math.abs(((angle % 360) + 540) % 360 - 180);
+    const want = aligned ? dev < 9 : dev < 5;
+    if (want !== aligned) { aligned = want; swapLine(aligned ? HEADING : QUOTE); }
+  }
   dial.setAttribute("transform", `rotate(${angle} 200 200)`);
 
   // Face tilts with the phone: flat stays flat, top raised leans the dial back, right side down lifts the right edge.
