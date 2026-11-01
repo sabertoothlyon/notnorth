@@ -162,6 +162,10 @@ body::after{content:""; position:fixed; inset:0; pointer-events:none;
       <defs>
         <radialGradient id="dishG" cx=".5" cy=".5" r=".62"><stop offset="0" stop-color="#16367d"/><stop offset=".65" stop-color="#0a1b45"/><stop offset="1" stop-color="#040b1d"/></radialGradient>
         <linearGradient id="dishShade" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#000" stop-opacity=".5"/><stop offset=".5" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#9fb6d8" stop-opacity=".14"/></linearGradient>
+        <radialGradient id="dishVig" cx=".5" cy=".5" r=".6"><stop offset="0" stop-color="#000" stop-opacity="0"/><stop offset=".6" stop-color="#000" stop-opacity=".08"/><stop offset="1" stop-color="#000" stop-opacity=".55"/></radialGradient>
+        <filter id="dishBlur" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="7"/></filter>
+        <mask id="dishMaskShadow" maskUnits="userSpaceOnUse" x="60" y="60" width="280" height="280"><circle cx="200" cy="200" r="120" fill="#fff"/><circle id="dishMS" cx="215" cy="215" r="120" fill="#000" filter="url(#dishBlur)"/></mask>
+        <mask id="dishMaskLit" maskUnits="userSpaceOnUse" x="60" y="60" width="280" height="280"><circle cx="200" cy="200" r="120" fill="#fff"/><circle id="dishML" cx="185" cy="185" r="120" fill="#000" filter="url(#dishBlur)"/></mask>
         <clipPath id="dishClip"><circle cx="200" cy="200" r="119"/></clipPath>
       </defs>
       <rect x="140" y="393" width="120" height="16" rx="8" fill="url(#lidBronze)" stroke="#2a1d08" stroke-width="1.6"/>
@@ -173,7 +177,9 @@ body::after{content:""; position:fixed; inset:0; pointer-events:none;
       <circle cx="200" cy="200" r="124.5" fill="none" stroke="url(#lidBronze)" stroke-width="4"/>
       <circle cx="200" cy="200" r="120" fill="url(#dishG)"/>
       <g id="dishStars" clip-path="url(#dishClip)"></g>
-      <circle cx="200" cy="200" r="120" fill="url(#dishShade)"/>
+      <circle cx="200" cy="200" r="120" fill="url(#dishVig)"/>
+      <circle cx="200" cy="200" r="120" fill="#000" opacity=".7" mask="url(#dishMaskShadow)"/>
+      <circle cx="200" cy="200" r="120" fill="#a8c4ff" opacity=".26" mask="url(#dishMaskLit)"/>
       <circle cx="200" cy="200" r="120" fill="none" stroke="#000" stroke-opacity=".6" stroke-width="3"/>
       <g fill="#0a0907" stroke="#3a2a0a" stroke-width="1.4"><circle cx="140" cy="369" r="9"/><circle cx="260" cy="369" r="9"/></g>
     </svg>
@@ -332,6 +338,7 @@ function updateLight(dt, headingDeg) {
   const grad = (g, r) => { g.setAttribute("x1", (200 + ux * r).toFixed(1)); g.setAttribute("y1", (200 + uy * r).toFixed(1)); g.setAttribute("x2", (200 - ux * r).toFixed(1)); g.setAttribute("y2", (200 - uy * r).toFixed(1)); };
   grad(gradFixed, 70); grad(gradCase, 283);
   gradDome.setAttribute("cx", (.5 + ux * .15 * near).toFixed(3)); gradDome.setAttribute("cy", (.5 + uy * .15 * near).toFixed(3));
+  if (window.dishUpdate) window.dishUpdate(sg, sb, ux, uy, near);
   const gl = byId("lidDome"); gl.setAttribute("fx", (.5 + ux * .16 * near).toFixed(3)); gl.setAttribute("fy", (.5 + uy * .16 * near).toFixed(3));
   // gleams: dome highlight, big glass reflection, small glass glint
   const sxp = 200 + ux * 10.6 * near, syp = 200 + uy * 10.6 * near;
@@ -446,26 +453,41 @@ requestAnimationFrame(frame);
 })();
 </script>
 <script>
-// Inside the lid: Cassiopeia, centered and subtle, over a few faint stars. No connecting lines.
+// Inside the lid: a concave star dish. Stars sit on a hemisphere, so they bunch toward the rim, and they shift a little as the phone tilts.
 (function () {
   const g = document.getElementById("dishStars"), NS = "http://www.w3.org/2000/svg";
   const rng = a => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
-  const r = rng(20261031);
-  function el(tag, at) { const e = document.createElementNS(NS, tag); for (const k in at) e.setAttribute(k, at[k]); g.appendChild(e); return e; }
-  for (let i = 0; i < 70; i++) {                                             // faint background
-    const a = r() * 6.283, d = Math.sqrt(r()) * 117, b = r();
-    el("circle", { cx: (200 + d * Math.cos(a)).toFixed(1), cy: (200 + d * Math.sin(a)).toFixed(1), r: (.3 + b * b * .8).toFixed(2), fill: "#dfe8ff", opacity: (.18 + b * .4).toFixed(2) });
+  const r = rng(20261031), stars = [];
+  const msEl = document.getElementById("dishMS"), mlEl = document.getElementById("dishML");
+  function el(tag, at, parent) { const e = document.createElementNS(NS, tag); for (const k in at) e.setAttribute(k, at[k]); (parent || g).appendChild(e); return e; }
+  function star(x, y, rad, op, fill, depth, glow) {
+    const grp = el("g", { transform: "translate(0 0)" });
+    const phi = Math.atan2(y - 200, x - 200) * 180 / Math.PI, squash = Math.max(.3, depth);   // near the rim a star is seen at a slant
+    if (glow) el("circle", { cx: x.toFixed(1), cy: y.toFixed(1), r: (rad * 2.6).toFixed(1), fill: "#ffe9a8", opacity: ".08" }, grp);
+    el("ellipse", { cx: x.toFixed(1), cy: y.toFixed(1), rx: (rad * squash).toFixed(2), ry: rad.toFixed(2), fill, opacity: op.toFixed(2), transform: `rotate(${phi.toFixed(0)} ${x.toFixed(1)} ${y.toFixed(1)})` }, grp);
+    stars.push({ grp, depth });
   }
-  const CAS = [[1.907, 63.67, 2.2], [1.430, 60.24, 2.7], [.945, 60.72, 3.0], [.675, 56.54, 3.3], [.153, 59.15, 3.1]];   // Segin, Ruchbah, Gamma, Schedar, Caph
+  for (let i = 0; i < 95; i++) {                                            // faint background on the inside of a dome
+    const z = r(), phi = r() * 6.283, rr = 116 * Math.sqrt(1 - z * z), b = r();
+    star(200 + rr * Math.cos(phi), 200 + rr * Math.sin(phi), .3 + b * b * .85, .2 + b * .45, r() < .2 ? "#cfe0ff" : "#dfe8ff", z, false);
+  }
+  const CAS = [[1.907, 63.67, 2.2], [1.430, 60.24, 2.7], [.945, 60.72, 3.0], [.675, 56.54, 3.3], [.153, 59.15, 3.1]];
   const pts = CAS.map(([ra, dec, m]) => ({ x: -ra * 15 * .5, y: -dec, m }));
   const minX = Math.min(...pts.map(p => p.x)), maxX = Math.max(...pts.map(p => p.x)), minY = Math.min(...pts.map(p => p.y)), maxY = Math.max(...pts.map(p => p.y));
   const k = 150 / (maxX - minX), ang = -10 * Math.PI / 180, mx = (minX + maxX) / 2, my = (minY + maxY) / 2;
-  const P = pts.map(p => { const dx = (p.x - mx) * k, dy = (p.y - my) * k; return { x: 200 + dx * Math.cos(ang) - dy * Math.sin(ang), y: 200 + dx * Math.sin(ang) + dy * Math.cos(ang), m: p.m }; });
-  P.forEach(p => {
-    const rad = 1.0 + (3.6 - p.m) * .5;                                   // small, only a little brighter than the other stars
-    el("circle", { cx: p.x.toFixed(1), cy: p.y.toFixed(1), r: (rad * 2.6).toFixed(1), fill: "#ffe9a8", opacity: ".08" });
-    el("circle", { cx: p.x.toFixed(1), cy: p.y.toFixed(1), r: rad.toFixed(2), fill: "#fff3c4", opacity: ".9" });
+  pts.forEach(p => {
+    const dx = (p.x - mx) * k, dy = (p.y - my) * k, x = 200 + dx * Math.cos(ang) - dy * Math.sin(ang), y = 200 + dx * Math.sin(ang) + dy * Math.cos(ang);
+    const depth = Math.sqrt(Math.max(0, 1 - Math.pow(Math.hypot(x - 200, y - 200) / 120, 2)));
+    star(x, y, 1.0 + (3.6 - p.m) * .5, .9, "#fff3c4", depth, true);
   });
+  // called from the light loop: tilt moves the stars (deeper ones more), and the light moves the shadowed lip
+  const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  window.dishUpdate = function (gamma, beta, ux, uy, near) {
+    const gx = cl(gamma, -35, 35) / 35, gy = cl(beta, -35, 35) / 35, m = 6 + 9 * near;
+    stars.forEach(s => s.grp.setAttribute("transform", `translate(${(-s.depth * gx * 8).toFixed(2)} ${(-s.depth * gy * 8).toFixed(2)})`));
+    msEl.setAttribute("cx", (200 - ux * m).toFixed(1)); msEl.setAttribute("cy", (200 - uy * m).toFixed(1));
+    mlEl.setAttribute("cx", (200 + ux * m).toFixed(1)); mlEl.setAttribute("cy", (200 + uy * m).toFixed(1));
+  };
 })();
 </script>
 </body>
