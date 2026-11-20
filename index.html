@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#070d0c">
-<title>Compass that Doesn't Point North...</title>
+<title>Compass</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@1&display=swap">
 <style>
 :root{
@@ -37,6 +37,7 @@ body::after{content:""; position:fixed; inset:0; pointer-events:none;
 #status{margin:0; position:relative; width:min(88vw,26em); line-height:1.35; min-height:1.4em; font-size:1.15rem; letter-spacing:.06em; opacity:.75; transition:opacity 1.6s ease}
 #status.gone{opacity:0}
 #status .sub{display:block; margin-top:.55em; font-size:.8em; letter-spacing:.14em; opacity:.85; text-transform:uppercase}
+#status .hint{display:block; margin-top:.6em; font-size:.76em; letter-spacing:.03em; line-height:1.4; opacity:.8}
 #status .t{position:absolute; left:0; right:0; top:0; white-space:pre-line}
 
 #sky{position:fixed; inset:0; width:100%; height:100%; pointer-events:none; z-index:0}
@@ -208,7 +209,7 @@ function bearingTo(a, b) {
 // Sensors
 const dial = document.getElementById("dial"), statusEl = document.getElementById("status");
 let pos = null, rawHeading = null, heading = null;
-let hSrc = "none", posAcc = null, locDenied = false, evCount = 0, openedAtMs = 0, motionAnswer = "";
+let hSrc = "none", posAcc = null, locDenied = false, locUnavailable = false, locTimeouts = 0, permState = "?", evCount = 0, openedAtMs = 0, motionAnswer = "";
 let rawBeta = 0, rawGamma = 0;   // phone tilt: beta = front/back, gamma = left/right
 const needsTap = typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function";   // iOS 13+
 let noSensorNote = false;    // set when we fall back to a north-up dial
@@ -239,11 +240,12 @@ function swapLine(text) {                       // quick cross-fade between the 
   statusEl.classList.add("gone");
   swapTimer = setTimeout(() => { say(text, true, text === HEADING ? distanceText() : ""); }, 480);
 }
-function say(t, final, sub) {
+function say(t, final, sub, subClass) {
   if (quoteShown && !final) return;
   statusEl.textContent = "";
   const span = document.createElement("span"); span.className = "t"; span.textContent = t;
-  if (sub) { const q = document.createElement("span"); q.className = "sub"; q.textContent = sub; span.appendChild(q); }
+  if (sub) { const q = document.createElement("span"); q.className = subClass || "sub"; q.textContent = sub; span.appendChild(q); }
+  statusEl.style.fontSize = (t.length + (subClass === "hint" ? 0 : 0)) > 70 && subClass === "hint" ? ".95rem" : "";
   statusEl.appendChild(span); statusEl.classList.remove("gone");
 }
 
@@ -261,25 +263,51 @@ function startOrientation() {
   window.addEventListener("deviceorientation", onOrient, true);
 }
 function onPos(p) {
-  pos = { lat: p.coords.latitude, lon: p.coords.longitude }; posAcc = p.coords.accuracy; locDenied = false;
+  pos = { lat: p.coords.latitude, lon: p.coords.longitude }; posAcc = p.coords.accuracy;
+  locDenied = false; locUnavailable = false; locTimeouts = 0;
   if (!settled) idleStatus();
 }
 function onPosErr(e) {
-  if (e.code === 1) { locDenied = true; idleStatus(); }          // blocked: say so instead of spinning silently
+  if (e.code === 1) locDenied = true;               // blocked for this page, or Location Services is off
+  else if (e.code === 2) locUnavailable = true;     // the phone cannot work out where it is
+  else if (e.code === 3) locTimeouts++;
+  idleStatus();
 }
+let watchId = null;
 function startLocation() {
   if (!navigator.geolocation) { say("This browser has no location support."); return; }
+  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
   navigator.geolocation.getCurrentPosition(onPos, onPosErr, { enableHighAccuracy: false, maximumAge: 600000, timeout: 15000 });   // quick rough fix first
-  navigator.geolocation.watchPosition(onPos, onPosErr, { enableHighAccuracy: true, maximumAge: 5000, timeout: 30000 });           // then the precise one
+  watchId = navigator.geolocation.watchPosition(onPos, onPosErr, { enableHighAccuracy: true, maximumAge: 5000, timeout: 30000 });  // then the precise one
+}
+// If the browser can tell us up front that location is blocked, believe it, and carry on by itself once it is switched back on.
+if (navigator.permissions && navigator.permissions.query) {
+  navigator.permissions.query({ name: "geolocation" }).then(st => {
+    permState = st.state;
+    const sync = () => {
+      permState = st.state;
+      if (st.state === "denied") { locDenied = true; if (opened) idleStatus(); }
+      else if (locDenied) { locDenied = false; if (sensorsOn) startLocation(); }
+    };
+    sync(); st.onchange = sync;
+  }).catch(() => {});
 }
 // What to say while the compass is still waiting on something.
 const inApp = /FBAN|FBAV|FB_IAB|Instagram|Messenger|Line\/|Snapchat|TikTok|Twitter|LinkedInApp|GSA\/|MicroMessenger|Pinterest/i.test(navigator.userAgent);
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 function idleStatus() {
   if (quoteShown) return;
-  if (locDenied) say("Location is blocked. Turn it on in your phone settings for this browser, then reload.");
-  else if (evCount === 0 && needsTap && motionAnswer === "denied") say("Motion access is blocked. On iPhone: Settings, Safari, Motion & Orientation Access, then reload.");
+  if (locDenied) {
+    if (inApp) say("Open this page in Safari or Chrome.", false, "This app blocks location. Tap the menu and choose Open in Browser.", "hint");
+    else if (isIOS) say("Location is blocked for this page.", false, "Tap aA in the address bar, then Website Settings, Location, Allow. Still stuck? Settings, Privacy & Security, Location Services: turn it on, then set Safari Websites to While Using. Then tap the compass.", "hint");
+    else say("Location is blocked for this page.", false, "Tap the lock icon in the address bar, allow Location, then tap the compass.", "hint");
+  }
+  else if (locUnavailable && !pos) say("Your phone can't work out where you are.", false, "Turn on Location Services and check your GPS or Wi-Fi signal.", "hint");
+  else if (locTimeouts >= 2 && !pos) say("Still looking for you.", false, "Step outside or somewhere with a clearer sky.", "hint");
+  else if (evCount === 0 && needsTap && motionAnswer === "denied") say("Motion access is blocked.", false, isIOS ? "Settings, Safari, Motion & Orientation Access: turn it on, then reload." : "Allow motion sensors for this site, then reload.", "hint");
   else if (evCount === 0 && needsTap) say("Tap the compass to allow motion.");
   else if (evCount === 0) say("This browser is not sending compass data. Try Chrome or Safari.");
+  else if (needsTap && !orientationStarted) say("Tap the compass to allow motion.");
   else if (!pos) say(LOC_MSG);
   else if (heading === null && inApp) say("Open this page in Safari or Chrome to wake the compass.");
   else if (heading === null) say("Hold your phone flat and wave it in a figure eight to wake the compass.");
@@ -300,7 +328,7 @@ setInterval(() => {
   const brg = pos ? bearingTo(pos, TARGET) : null;
   const rel = (brg !== null && heading !== null) ? ((brg - heading + 540) % 360) - 180 : null;
   dbg.textContent = `heading   ${f1(heading)}  (${hSrc})\n` + `target    ${f1(brg)}\n` + `relative  ${f1(rel)}  (0 = straight ahead)\n` +
-    `position  ${pos ? pos.lat.toFixed(5) + ", " + pos.lon.toFixed(5) : "--"}  +/-${f1(posAcc)} m\n` + `tilt      beta ${f1(rawBeta)}  gamma ${f1(rawGamma)}\n` + `dial      ${f1(((angle % 360) + 540) % 360 - 180)}\n` + `distance  ${pos ? distanceText().replace(" ahead", "") : "--"}\n` + `location  ${locDenied ? "BLOCKED" : pos ? "ok" : "waiting"}   motion ${orientationStarted ? "on" : "off"}   events ${evCount}\n` + `browser   ${navigator.userAgent.replace(/^Mozilla\/5.0 /, "").slice(0, 46)}${inApp ? "  [in-app]" : ""}`;
+    `position  ${pos ? pos.lat.toFixed(5) + ", " + pos.lon.toFixed(5) : "--"}  +/-${f1(posAcc)} m\n` + `tilt      beta ${f1(rawBeta)}  gamma ${f1(rawGamma)}\n` + `dial      ${f1(((angle % 360) + 540) % 360 - 180)}\n` + `distance  ${pos ? distanceText().replace(" ahead", "") : "--"}\n` + `location  ${locDenied ? "BLOCKED" : locUnavailable ? "unavailable" : pos ? "ok" : "waiting"} (perm ${permState})   motion ${orientationStarted ? "on" : "off"}   events ${evCount}\n` + `browser   ${navigator.userAgent.replace(/^Mozilla\/5.0 /, "").slice(0, 46)}${inApp ? "  [in-app]" : ""}`;
 }, 250);
 
 // The lid: a tap flips it open, then the compass wakes up and starts seeking.
@@ -325,6 +353,7 @@ document.addEventListener("click", async () => {
   if (!opened) openLid();
   if (!window.isSecureContext) { say("Sensors need an https address."); return; }
   if (!sensorsOn) { sensorsOn = true; say(LOC_MSG); startLocation(); }
+  else if (locDenied || locUnavailable) startLocation();       // a tap tries again, in case the setting was just changed
   startOrientation();                                   // listen on every phone; iOS sends nothing until motion is allowed
   if (needsTap && evCount === 0 && motionAnswer !== "pending") {      // iOS only accepts this from a tap
     motionAnswer = "pending";
