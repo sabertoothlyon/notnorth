@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#070d0c">
-<title>Compass the Doesn't Point North...</title>
+<title>Compass the Doesn't Point North</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@1&display=swap">
 <style>
 :root{
@@ -36,6 +36,7 @@ body::after{content:""; position:fixed; inset:0; pointer-events:none;
 @media (prefers-reduced-motion: reduce){#lid,#stage{transition-duration:.01s}}
 #status{margin:0; position:relative; width:min(88vw,26em); line-height:1.35; min-height:1.4em; font-size:1.15rem; letter-spacing:.06em; opacity:.75; transition:opacity 1.6s ease}
 #status.gone{opacity:0}
+#status .sub{display:block; margin-top:.55em; font-size:.8em; letter-spacing:.14em; opacity:.85; text-transform:uppercase}
 #status .t{position:absolute; left:0; right:0; top:0; white-space:pre-line}
 
 #sky{position:fixed; inset:0; width:100%; height:100%; pointer-events:none; z-index:0}
@@ -162,6 +163,10 @@ body::after{content:""; position:fixed; inset:0; pointer-events:none;
       <defs>
         <radialGradient id="dishG" cx=".5" cy=".5" r=".62"><stop offset="0" stop-color="#16367d"/><stop offset=".65" stop-color="#0a1b45"/><stop offset="1" stop-color="#040b1d"/></radialGradient>
         <linearGradient id="dishShade" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#000" stop-opacity=".5"/><stop offset=".5" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#9fb6d8" stop-opacity=".14"/></linearGradient>
+        <radialGradient id="dishVig" cx=".5" cy=".5" r=".6"><stop offset="0" stop-color="#000" stop-opacity="0"/><stop offset=".6" stop-color="#000" stop-opacity=".08"/><stop offset="1" stop-color="#000" stop-opacity=".55"/></radialGradient>
+        <filter id="dishBlur" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="7"/></filter>
+        <mask id="dishMaskShadow" maskUnits="userSpaceOnUse" x="60" y="60" width="280" height="280"><circle cx="200" cy="200" r="120" fill="#fff"/><circle id="dishMS" cx="215" cy="215" r="120" fill="#000" filter="url(#dishBlur)"/></mask>
+        <mask id="dishMaskLit" maskUnits="userSpaceOnUse" x="60" y="60" width="280" height="280"><circle cx="200" cy="200" r="120" fill="#fff"/><circle id="dishML" cx="185" cy="185" r="120" fill="#000" filter="url(#dishBlur)"/></mask>
         <clipPath id="dishClip"><circle cx="200" cy="200" r="119"/></clipPath>
       </defs>
       <rect x="140" y="393" width="120" height="16" rx="8" fill="url(#lidBronze)" stroke="#2a1d08" stroke-width="1.6"/>
@@ -173,7 +178,9 @@ body::after{content:""; position:fixed; inset:0; pointer-events:none;
       <circle cx="200" cy="200" r="124.5" fill="none" stroke="url(#lidBronze)" stroke-width="4"/>
       <circle cx="200" cy="200" r="120" fill="url(#dishG)"/>
       <g id="dishStars" clip-path="url(#dishClip)"></g>
-      <circle cx="200" cy="200" r="120" fill="url(#dishShade)"/>
+      <circle cx="200" cy="200" r="120" fill="url(#dishVig)"/>
+      <circle cx="200" cy="200" r="120" fill="#000" opacity=".7" mask="url(#dishMaskShadow)"/>
+      <circle cx="200" cy="200" r="120" fill="#a8c4ff" opacity=".26" mask="url(#dishMaskLit)"/>
       <circle cx="200" cy="200" r="120" fill="none" stroke="#000" stroke-opacity=".6" stroke-width="3"/>
       <g fill="#0a0907" stroke="#3a2a0a" stroke-width="1.4"><circle cx="140" cy="369" r="9"/><circle cx="260" cy="369" r="9"/></g>
     </svg>
@@ -184,7 +191,7 @@ body::after{content:""; position:fixed; inset:0; pointer-events:none;
 
 <script>
 // Target: Kahana Bay, Oʻahu, Hawaiʻi.
-const TARGET = { lat: 21.5561936, lon: -157.8743992 };
+const TARGET = { lat: 21.55639, lon: -157.87472 };
 const MIN_HUNT_MS = 3600;      // the dial always searches at least this long
 const NO_SENSOR_MS = 2500;     // extra wait for a heading before assuming no compass sensor
 const AMP = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0.35 : 1;
@@ -201,6 +208,7 @@ function bearingTo(a, b) {
 // Sensors
 const dial = document.getElementById("dial"), statusEl = document.getElementById("status");
 let pos = null, rawHeading = null, heading = null;
+let hSrc = "none", posAcc = null, locDenied = false, evCount = 0, openedAtMs = 0, motionAnswer = "";
 let rawBeta = 0, rawGamma = 0;   // phone tilt: beta = front/back, gamma = left/right
 const needsTap = typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function";   // iOS 13+
 let noSensorNote = false;    // set when we fall back to a north-up dial
@@ -209,23 +217,41 @@ const LOC_MSG = "Allow location to find your way to what you want most in the wo
 const QUOTE = "Not all treasure is silver and gold, mate.";
 const HEADING = "We have our heading.";
 let quoteShown = false, quoteLive = false, aligned = false, swapTimer = 0;
+// Distance to the target in old sea units: leagues past 10 miles, nautical miles under 10, fathoms under 1 mile.
+function distMeters(a, b) {
+  const R = 6371000, p1 = rad(a.lat), p2 = rad(b.lat), dp = p2 - p1, dl = rad(b.lon - a.lon);
+  const h = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function distanceText() {
+  if (!pos) return "";
+  const m = distMeters(pos, TARGET), mi = m / 1609.344;
+  let v, unit;
+  if (mi > 10) { v = m / 5556; unit = "league"; }              // 3 nautical miles, about 3.45 land miles
+  else if (mi >= 1) { v = m / 1852; unit = "nautical mile"; }  // about 1.15 land miles, 6,076 feet
+  else { v = m / 1.8288; unit = "fathom"; }                    // 6 feet
+  const txt = unit === "fathom" ? String(Math.round(v)) : v.toFixed(1);
+  return `${txt} ${unit}${+txt === 1 ? "" : "s"} ahead`;
+}
 function swapLine(text) {                       // quick cross-fade between the two closing lines
   clearTimeout(swapTimer);
   statusEl.style.transitionDuration = ".45s";
   statusEl.classList.add("gone");
-  swapTimer = setTimeout(() => { say(text, true); }, 480);
+  swapTimer = setTimeout(() => { say(text, true, text === HEADING ? distanceText() : ""); }, 480);
 }
-function say(t, final) {
+function say(t, final, sub) {
   if (quoteShown && !final) return;
   statusEl.textContent = "";
   const span = document.createElement("span"); span.className = "t"; span.textContent = t;
+  if (sub) { const q = document.createElement("span"); q.className = "sub"; q.textContent = sub; span.appendChild(q); }
   statusEl.appendChild(span); statusEl.classList.remove("gone");
 }
 
 function onOrient(e) {
+  evCount++;
   if (typeof e.beta === "number" && typeof e.gamma === "number") { rawBeta = e.beta; rawGamma = e.gamma; }
-  if (typeof e.webkitCompassHeading === "number") rawHeading = e.webkitCompassHeading;
-  else if (e.alpha !== null && (e.absolute || e.type === "deviceorientationabsolute")) rawHeading = (360 - e.alpha) % 360;
+  if (typeof e.webkitCompassHeading === "number") { rawHeading = e.webkitCompassHeading; hSrc = "ios webkitCompassHeading"; }
+  else if (e.alpha !== null && (e.absolute || e.type === "deviceorientationabsolute")) { rawHeading = (360 - e.alpha) % 360; hSrc = "android absolute alpha"; }
 }
 let orientationStarted = false;
 function startOrientation() {
@@ -234,18 +260,48 @@ function startOrientation() {
   window.addEventListener("deviceorientationabsolute", onOrient, true);
   window.addEventListener("deviceorientation", onOrient, true);
 }
-function startLocation() {
-  if (!navigator.geolocation) { say("No location support here."); return; }
-  navigator.geolocation.watchPosition(
-    p => {
-      const first = pos === null;
-      pos = { lat: p.coords.latitude, lon: p.coords.longitude };
-      if (first && !settled && (!needsTap || orientationStarted)) say("Seeking...");
-    },
-    e => say(e.code === 1 ? LOC_MSG : "No position fix yet."),
-    { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
-  );
+function onPos(p) {
+  pos = { lat: p.coords.latitude, lon: p.coords.longitude }; posAcc = p.coords.accuracy; locDenied = false;
+  if (!settled) idleStatus();
 }
+function onPosErr(e) {
+  if (e.code === 1) { locDenied = true; idleStatus(); }          // blocked: say so instead of spinning silently
+}
+function startLocation() {
+  if (!navigator.geolocation) { say("This browser has no location support."); return; }
+  navigator.geolocation.getCurrentPosition(onPos, onPosErr, { enableHighAccuracy: false, maximumAge: 600000, timeout: 15000 });   // quick rough fix first
+  navigator.geolocation.watchPosition(onPos, onPosErr, { enableHighAccuracy: true, maximumAge: 5000, timeout: 30000 });           // then the precise one
+}
+// What to say while the compass is still waiting on something.
+const inApp = /FBAN|FBAV|FB_IAB|Instagram|Messenger|Line\/|Snapchat|TikTok|Twitter|LinkedInApp|GSA\/|MicroMessenger|Pinterest/i.test(navigator.userAgent);
+function idleStatus() {
+  if (quoteShown) return;
+  if (locDenied) say("Location is blocked. Turn it on in your phone settings for this browser, then reload.");
+  else if (evCount === 0 && needsTap && motionAnswer === "denied") say("Motion access is blocked. On iPhone: Settings, Safari, Motion & Orientation Access, then reload.");
+  else if (evCount === 0 && needsTap) say("Tap the compass to allow motion.");
+  else if (evCount === 0) say("This browser is not sending compass data. Try Chrome or Safari.");
+  else if (!pos) say(LOC_MSG);
+  else if (heading === null && inApp) say("Open this page in Safari or Chrome to wake the compass.");
+  else if (heading === null) say("Hold your phone flat and wave it in a figure eight to wake the compass.");
+  else say("Seeking...");
+}
+setInterval(() => { if (opened && !quoteShown && performance.now() - openedAtMs > 5000) idleStatus(); }, 1000);
+
+// Hidden readout: press and hold the status line for one second to show or hide it.
+const dbg = document.createElement("pre"); dbg.id = "dbg";
+dbg.style.cssText = "position:fixed;left:8px;bottom:8px;z-index:9;margin:0;padding:6px 8px;font:11px/1.35 ui-monospace,Menlo,monospace;color:#9fe8d0;background:rgba(0,0,0,.6);border-radius:6px;white-space:pre;display:none;pointer-events:none";
+document.body.appendChild(dbg);
+let dbgTimer = 0, dbgOn = false;
+const f1 = v => (v === null || v === undefined || isNaN(v)) ? "--" : (+v).toFixed(1);
+statusEl.addEventListener("pointerdown", () => { dbgTimer = setTimeout(() => { dbgOn = !dbgOn; dbg.style.display = dbgOn ? "block" : "none"; }, 1000); });
+["pointerup", "pointerleave", "pointercancel"].forEach(ev => statusEl.addEventListener(ev, () => clearTimeout(dbgTimer)));
+setInterval(() => {
+  if (!dbgOn) return;
+  const brg = pos ? bearingTo(pos, TARGET) : null;
+  const rel = (brg !== null && heading !== null) ? ((brg - heading + 540) % 360) - 180 : null;
+  dbg.textContent = `heading   ${f1(heading)}  (${hSrc})\n` + `target    ${f1(brg)}\n` + `relative  ${f1(rel)}  (0 = straight ahead)\n` +
+    `position  ${pos ? pos.lat.toFixed(5) + ", " + pos.lon.toFixed(5) : "--"}  +/-${f1(posAcc)} m\n` + `tilt      beta ${f1(rawBeta)}  gamma ${f1(rawGamma)}\n` + `dial      ${f1(((angle % 360) + 540) % 360 - 180)}\n` + `distance  ${pos ? distanceText().replace(" ahead", "") : "--"}\n` + `location  ${locDenied ? "BLOCKED" : pos ? "ok" : "waiting"}   motion ${orientationStarted ? "on" : "off"}   events ${evCount}\n` + `browser   ${navigator.userAgent.replace(/^Mozilla\/5.0 /, "").slice(0, 46)}${inApp ? "  [in-app]" : ""}`;
+}, 250);
 
 // The lid: a tap flips it open, then the compass wakes up and starts seeking.
 const lidEl = document.getElementById("lid"), compassSvg = document.getElementById("compass");
@@ -263,20 +319,18 @@ function openLid() {
   const mag = d / (d - (S * Math.sin(a * Math.PI / 180) + 10));              // the raised lid edge looks bigger, so shrink the case a touch to keep it on screen
   document.getElementById("stage").style.scale = Math.min(1, (innerWidth - 14) / (S * mag)).toFixed(3);
   lidEl.style.transform = `translateZ(10px) rotateX(${a}deg)`;
-  opened = true; openPending = true;
+  opened = true; openPending = true; openedAtMs = performance.now();
 }
 document.addEventListener("click", async () => {
   if (!opened) openLid();
   if (!window.isSecureContext) { say("Sensors need an https address."); return; }
   if (!sensorsOn) { sensorsOn = true; say(LOC_MSG); startLocation(); }
-  if (!needsTap) { startOrientation(); return; }
-  if (orientationStarted) return;
-  try {                                                                // iOS only accepts this from a tap
-    const r = await DeviceOrientationEvent.requestPermission();
-    if (r === "granted") { startOrientation(); say("Seeking..."); }
-    else say("Motion denied. Close Safari, reopen, and tap again.");
-  } catch (err) {
-    say("Motion failed: " + (err && err.name ? err.name : "unknown") + ". Tap to retry.");
+  startOrientation();                                   // listen on every phone; iOS sends nothing until motion is allowed
+  if (needsTap && evCount === 0 && motionAnswer !== "pending") {      // iOS only accepts this from a tap
+    motionAnswer = "pending";
+    try { motionAnswer = await DeviceOrientationEvent.requestPermission(); }
+    catch (err) { motionAnswer = "error"; }
+    idleStatus();
   }
 });
 
@@ -332,6 +386,7 @@ function updateLight(dt, headingDeg) {
   const grad = (g, r) => { g.setAttribute("x1", (200 + ux * r).toFixed(1)); g.setAttribute("y1", (200 + uy * r).toFixed(1)); g.setAttribute("x2", (200 - ux * r).toFixed(1)); g.setAttribute("y2", (200 - uy * r).toFixed(1)); };
   grad(gradFixed, 70); grad(gradCase, 283);
   gradDome.setAttribute("cx", (.5 + ux * .15 * near).toFixed(3)); gradDome.setAttribute("cy", (.5 + uy * .15 * near).toFixed(3));
+  if (window.dishUpdate) window.dishUpdate(sg, sb, ux, uy, near);
   const gl = byId("lidDome"); gl.setAttribute("fx", (.5 + ux * .16 * near).toFixed(3)); gl.setAttribute("fy", (.5 + uy * .16 * near).toFixed(3));
   // gleams: dome highlight, big glass reflection, small glass glint
   const sxp = 200 + ux * 10.6 * near, syp = 200 + uy * 10.6 * near;
@@ -344,7 +399,7 @@ function updateLight(dt, headingDeg) {
   ghostEl.setAttribute("cx", (200 - ux * gd * .55).toFixed(1)); ghostEl.setAttribute("cy", (200 - uy * gd * .55).toFixed(1));
   ghostEl.setAttribute("opacity", (.2 * f * near).toFixed(3));
 }
-let angle = 0, vel = 0, spinGoal = 0, nextKick = 0, startT = null, last = null, settled = false;
+let lastDistT = 0, angle = 0, vel = 0, spinGoal = 0, nextKick = 0, startT = null, last = null, settled = false;
 
 function frame(t) {
   if (startT === null) { startT = t; last = t; }
@@ -353,7 +408,7 @@ function frame(t) {
 
   if (rawHeading !== null) {
     heading = heading === null ? rawHeading : heading + wrap(rawHeading - heading) * Math.min(1, dt * 8);
-  } else if (heading === null && !needsTap && opened && t - startT > MIN_HUNT_MS + NO_SENSOR_MS) {
+  } else if (heading === null && !needsTap && !(navigator.maxTouchPoints > 0) && opened && t - startT > MIN_HUNT_MS + NO_SENSOR_MS) {   // desktops only
     // No compass sensor (most desktops). Treat the top of the screen as north.
     heading = 0;
     noSensorNote = true;
@@ -362,7 +417,7 @@ function frame(t) {
 
   if (!ready) {
     if (opened && t > nextKick) {
-      spinGoal = (Math.random() * 2 - 1) * 1100 * AMP;
+      spinGoal = (Math.random() * 2 - 1) * ((locDenied || t - startT > 9000) ? 140 : 1100) * AMP;   // slow sway once it is clearly stuck
       nextKick = t + 220 + Math.random() * 480;
     }
     vel += (spinGoal - vel) * Math.min(1, dt * 6);
@@ -382,6 +437,10 @@ function frame(t) {
     const dev = Math.abs(((angle % 360) + 540) % 360 - 180);
     const want = aligned ? dev < 9 : dev < 5;
     if (want !== aligned) { aligned = want; swapLine(aligned ? HEADING : QUOTE); }
+    if (aligned && t - lastDistT > 500) {                     // keep the distance current while the heading holds
+      lastDistT = t; const sub = statusEl.querySelector(".sub"), txt = distanceText();
+      if (sub && txt) sub.textContent = txt;
+    }
   }
   dial.setAttribute("transform", `rotate(${angle} 200 200)`);
 
@@ -446,26 +505,41 @@ requestAnimationFrame(frame);
 })();
 </script>
 <script>
-// Inside the lid: Cassiopeia, centered and subtle, over a few faint stars. No connecting lines.
+// Inside the lid: a concave star dish. Stars sit on a hemisphere, so they bunch toward the rim, and they shift a little as the phone tilts.
 (function () {
   const g = document.getElementById("dishStars"), NS = "http://www.w3.org/2000/svg";
   const rng = a => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
-  const r = rng(20261031);
-  function el(tag, at) { const e = document.createElementNS(NS, tag); for (const k in at) e.setAttribute(k, at[k]); g.appendChild(e); return e; }
-  for (let i = 0; i < 70; i++) {                                             // faint background
-    const a = r() * 6.283, d = Math.sqrt(r()) * 117, b = r();
-    el("circle", { cx: (200 + d * Math.cos(a)).toFixed(1), cy: (200 + d * Math.sin(a)).toFixed(1), r: (.3 + b * b * .8).toFixed(2), fill: "#dfe8ff", opacity: (.18 + b * .4).toFixed(2) });
+  const r = rng(20261031), stars = [];
+  const msEl = document.getElementById("dishMS"), mlEl = document.getElementById("dishML");
+  function el(tag, at, parent) { const e = document.createElementNS(NS, tag); for (const k in at) e.setAttribute(k, at[k]); (parent || g).appendChild(e); return e; }
+  function star(x, y, rad, op, fill, depth, glow) {
+    const grp = el("g", { transform: "translate(0 0)" });
+    const phi = Math.atan2(y - 200, x - 200) * 180 / Math.PI, squash = Math.max(.3, depth);   // near the rim a star is seen at a slant
+    if (glow) el("circle", { cx: x.toFixed(1), cy: y.toFixed(1), r: (rad * 2.6).toFixed(1), fill: "#ffe9a8", opacity: ".08" }, grp);
+    el("ellipse", { cx: x.toFixed(1), cy: y.toFixed(1), rx: (rad * squash).toFixed(2), ry: rad.toFixed(2), fill, opacity: op.toFixed(2), transform: `rotate(${phi.toFixed(0)} ${x.toFixed(1)} ${y.toFixed(1)})` }, grp);
+    stars.push({ grp, depth });
   }
-  const CAS = [[1.907, 63.67, 2.2], [1.430, 60.24, 2.7], [.945, 60.72, 3.0], [.675, 56.54, 3.3], [.153, 59.15, 3.1]];   // Segin, Ruchbah, Gamma, Schedar, Caph
+  for (let i = 0; i < 95; i++) {                                            // faint background on the inside of a dome
+    const z = r(), phi = r() * 6.283, rr = 116 * Math.sqrt(1 - z * z), b = r();
+    star(200 + rr * Math.cos(phi), 200 + rr * Math.sin(phi), .3 + b * b * .85, .2 + b * .45, r() < .2 ? "#cfe0ff" : "#dfe8ff", z, false);
+  }
+  const CAS = [[1.907, 63.67, 2.2], [1.430, 60.24, 2.7], [.945, 60.72, 3.0], [.675, 56.54, 3.3], [.153, 59.15, 3.1]];
   const pts = CAS.map(([ra, dec, m]) => ({ x: -ra * 15 * .5, y: -dec, m }));
   const minX = Math.min(...pts.map(p => p.x)), maxX = Math.max(...pts.map(p => p.x)), minY = Math.min(...pts.map(p => p.y)), maxY = Math.max(...pts.map(p => p.y));
   const k = 150 / (maxX - minX), ang = -10 * Math.PI / 180, mx = (minX + maxX) / 2, my = (minY + maxY) / 2;
-  const P = pts.map(p => { const dx = (p.x - mx) * k, dy = (p.y - my) * k; return { x: 200 + dx * Math.cos(ang) - dy * Math.sin(ang), y: 200 + dx * Math.sin(ang) + dy * Math.cos(ang), m: p.m }; });
-  P.forEach(p => {
-    const rad = 1.0 + (3.6 - p.m) * .5;                                   // small, only a little brighter than the other stars
-    el("circle", { cx: p.x.toFixed(1), cy: p.y.toFixed(1), r: (rad * 2.6).toFixed(1), fill: "#ffe9a8", opacity: ".08" });
-    el("circle", { cx: p.x.toFixed(1), cy: p.y.toFixed(1), r: rad.toFixed(2), fill: "#fff3c4", opacity: ".9" });
+  pts.forEach(p => {
+    const dx = (p.x - mx) * k, dy = (p.y - my) * k, x = 200 + dx * Math.cos(ang) - dy * Math.sin(ang), y = 200 + dx * Math.sin(ang) + dy * Math.cos(ang);
+    const depth = Math.sqrt(Math.max(0, 1 - Math.pow(Math.hypot(x - 200, y - 200) / 120, 2)));
+    star(x, y, 1.0 + (3.6 - p.m) * .5, .9, "#fff3c4", depth, true);
   });
+  // called from the light loop: tilt moves the stars (deeper ones more), and the light moves the shadowed lip
+  const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  window.dishUpdate = function (gamma, beta, ux, uy, near) {
+    const gx = cl(gamma, -35, 35) / 35, gy = cl(beta, -35, 35) / 35, m = 6 + 9 * near;
+    stars.forEach(s => s.grp.setAttribute("transform", `translate(${(-s.depth * gx * 8).toFixed(2)} ${(-s.depth * gy * 8).toFixed(2)})`));
+    msEl.setAttribute("cx", (200 - ux * m).toFixed(1)); msEl.setAttribute("cy", (200 - uy * m).toFixed(1));
+    mlEl.setAttribute("cx", (200 + ux * m).toFixed(1)); mlEl.setAttribute("cy", (200 + uy * m).toFixed(1));
+  };
 })();
 </script>
 </body>
